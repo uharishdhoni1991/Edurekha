@@ -1,0 +1,256 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  InstanceTypeLight:
+    Type: String
+    Default: t3.micro
+    Description: Instance type for lightweight servers.
+
+  InstanceTypeHeavy:
+    Type: String
+    Default: t3.large
+    Description: Instance type for heavy load servers.
+
+Resources:
+
+  # S3 Bucket for React App
+  ReactAppBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "react-app-${AWS::619071311067}"
+
+  # CloudFront for React App (Optional)
+  ReactAppDistribution:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: ReactAppOrigin
+            DomainName: !GetAtt ReactAppBucket.WebsiteURL
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        Enabled: "true"
+        DefaultRootObject: "index.js"
+        DefaultCacheBehavior:
+          TargetOriginId: ReactAppOrigin
+          ViewerProtocolPolicy: "redirect-to-https"
+        PriceClass: "PriceClass_100"
+
+  # Elastic Beanstalk Environment for Python App
+  PythonAppEnvironment:
+    Type: "AWS::ElasticBeanstalk::Environment"
+    Properties:
+      ApplicationName: "PythonApp"
+      EnvironmentName: "PythonAppEnv"
+      SolutionStackName: "64bit Amazon Linux 2 v5.4.6 running Python 3.8"
+      OptionSettings:
+        - Namespace: "aws:elasticbeanstalk:environment"
+          OptionName: "EnvironmentType"
+          Value: "LoadBalanced"
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: "PYTHON_VERSION"
+          Value: "3.8"
+        - Namespace: "aws:elasticbeanstalk:container:python"
+          OptionName: "WSGIPath"
+          Value: "main.py" # For Flask, adjust for Django if needed
+
+  # Outputs
+  ReactAppURL:
+    Description: "URL of the React App"
+    Value: !Sub "http://${ReactAppDistribution.DomainName}"
+
+  # Create the VPC
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: "true"
+      EnableDnsHostnames: "true"
+      Tags:
+        - Key: Name
+          Value: MyVPC
+
+  # Create an Internet Gateway
+  MyInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyInternetGateway
+
+  # Attach the Internet Gateway to the VPC
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref MyInternetGateway
+
+  # Create Public Subnet 1
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: "us-east-1a"
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        - Key: Name
+          Value: PublicSubnet1
+
+  # Create Public Subnet 2
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.2.0/24"
+      AvailabilityZone: "us-east-1b"
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        - Key: Name
+          Value: PublicSubnet2
+
+  # Create Private Subnet 1
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.3.0/24"
+      AvailabilityZone: "us-east-1a"
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet1
+
+  # Create Private Subnet 2
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.4.0/24"
+      AvailabilityZone: "us-east-1b"
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet2
+
+  # Create Database Subnet 1
+  DBSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.5.0/24"
+      AvailabilityZone: "us-east-1a"
+      Tags:
+        - Key: Name
+          Value: DBSubnet1
+
+  # Create Database Subnet 2
+  DBSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.6.0/24"
+      AvailabilityZone: "us-east-1b"
+      Tags:
+        - Key: Name
+          Value: DBSubnet2
+  
+  # Security Group allowing HTTP and SSH access
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and SSH access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '0.0.0.0/0' # Allow SSH from anywhere
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: '0.0.0.0/0' # Allow HTTP from anywhere
+  
+  # Launch Configuration for lightweight servers
+  LaunchConfigLight:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-xxxxxxxxx  # Replace with your AMI ID
+      InstanceType: !Ref InstanceTypeLight
+      SecurityGroups:
+        - Ref: EC2SecurityGroup
+      KeyName: my-key-pair  # Replace with your key pair name
+      AssociatePublicIpAddress: true
+
+  # Launch Configuration for heavy load servers
+  LaunchConfigHeavy:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-xxxxxxxxx  # Replace with your AMI ID
+      InstanceType: !Ref InstanceTypeHeavy
+      SecurityGroups:
+        - Ref: EC2SecurityGroup
+      KeyName: my-key-pair  # Replace with your key pair name
+      AssociatePublicIpAddress: true
+
+  # Auto Scaling Group for lightweight servers
+  ASGLight:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: '2'
+      MaxSize: '2'
+      DesiredCapacity: '2'
+      LaunchConfigurationName: !Ref LaunchConfigLight
+      VPCZoneIdentifier:
+        - subnet-xxxxxxxx  # Replace with your subnet ID
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      AvailabilityZones:
+        - us-east-1a  # Replace with your availability zone
+        - us-east-1b
+
+  # Auto Scaling Group for heavy load servers
+  ASGHeavy:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: '4'
+      MaxSize: '4'
+      DesiredCapacity: '4'
+      LaunchConfigurationName: !Ref LaunchConfigHeavy
+      VPCZoneIdentifier:
+        - subnet-xxxxxxxx  # Replace with your subnet ID
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      AvailabilityZones:
+        - us-east-1a  # Replace with your availability zone
+        - us-east-1b
+
+Outputs:
+  ReactAppBucketName:
+    Value: !Ref ReactAppBucket
+  PythonAppURL:
+    Value: !Sub "http://${PythonAppEnvironment.EndpointURL}"
+  VPCId:
+    Description: The VPC ID
+    Value: !Ref MyVPC
+  PublicSubnet1Id:
+    Description: The ID of the first public subnet
+    Value: !Ref PublicSubnet1
+  PublicSubnet2Id:
+    Description: The ID of the second public subnet
+    Value: !Ref PublicSubnet2
+  PrivateSubnet1Id:
+    Description: The ID of the first private subnet
+    Value: !Ref PrivateSubnet1
+  PrivateSubnet2Id:
+    Description: The ID of the second private subnet
+    Value: !Ref PrivateSubnet2
+  DBSubnet1Id:
+    Description: The ID of the first database subnet
+    Value: !Ref DBSubnet1
+  DBSubnet2Id:
+    Description: The ID of the second database subnet
+    Value: !Ref DBSubnet2
+  ASGLightGroup:
+    Description: Auto Scaling Group for Lightweight Servers
+    Value: !Ref ASGLight
+  ASGHeavyGroup:
+    Description: Auto Scaling Group for Heavy Load Servers
+    Value: !Ref ASGHeavy
